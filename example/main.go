@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/yuyistudio/ecs-go/go-entitas"
+	"github.com/yuyistudio/ecs-go/entitas"
 	"fmt"
 	"time"
 )
