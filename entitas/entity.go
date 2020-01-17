@@ -15,6 +15,7 @@ type EntityID uint
 
 type Entity interface {
 	AddComponent(cs ...Component) error
+	RebuildComponentIndex()
 	ReplaceComponent(cs ...Component)
 	WillRemoveComponent(ts ...ComponentType) error
 	RemoveComponent(ts ...ComponentType) error
@@ -28,6 +29,9 @@ type Entity interface {
 	HasAnyComponent(ts ...ComponentType) bool
 	Component(t ComponentType) (Component, error)
 	GetComponent(t ComponentType) Component
+	DictGetComponent(t ComponentType) Component
+	BinarySearchComponent(t ComponentType) Component
+	LinearSearchComponent(t ComponentType) Component
 	Components() []Component
 	ComponentIndices() []ComponentType
 }
@@ -45,6 +49,7 @@ type ComponentCallback func(Entity, Component)
 
 type entity struct {
 	id         EntityID
+	sortedComponents []Component
 	components map[ComponentType]Component
 	callbacks  map[ComponentEvent][]ComponentCallback
 }
@@ -66,6 +71,25 @@ func (e *entity) AddComponent(cs ...Component) error {
 		e.callback(ComponentAdded, c)
 	}
 	return nil
+}
+
+func (e *entity) RebuildComponentIndex() {
+	ln := len(e.sortedComponents)
+	if cap(e.sortedComponents) >= len(e.components) {
+		e.sortedComponents = e.sortedComponents[:len(e.components)]
+		fmt.Printf("change length %d -> %d\n", ln, len(e.components))
+	} else {
+		e.sortedComponents = make([]Component, len(e.components), len(e.components) * 4 / 3)
+		fmt.Printf("create new array, length %d -> %d\n", ln, len(e.components))
+	}
+	idx := 0
+	for _, c := range e.components {
+		e.sortedComponents[idx] = c
+		idx += 1
+	}
+	sort.Slice(e.sortedComponents, func(i, j int) bool {
+		return e.sortedComponents[i].Type() < e.sortedComponents[j].Type()
+	})
 }
 
 func (e *entity) ReplaceComponent(cs ...Component) {
@@ -165,11 +189,49 @@ func (e *entity) Component(t ComponentType) (Component, error) {
 }
 
 func (e *entity) GetComponent(t ComponentType) Component {
+	if len(e.sortedComponents) < 64 {
+		return e.BinarySearchComponent(t)
+	} else {
+		return e.DictGetComponent(t)
+	}
+}
+
+func (e *entity) DictGetComponent(t ComponentType) Component {
 	c, ok := e.components[t]
 	if !ok {
-		panic(fmt.Sprintf("component type %v doesn't exist", t))
+		return nil
 	}
 	return c
+}
+
+func (e *entity) LinearSearchComponent(targetType ComponentType) Component {
+	coms := e.sortedComponents
+	for i := 0; i < len(coms); i++ {
+		c := coms[i]
+		if c.Type() == targetType {
+			return c
+		}
+	}
+	return nil
+}
+
+func (e *entity) BinarySearchComponent(targetType ComponentType) Component {
+	coms := e.sortedComponents
+	startIdx := 0
+	endIdx := len(coms) - 1
+	for startIdx <= endIdx {
+		midIdx := (startIdx + endIdx) / 2
+		v := coms[midIdx].Type()
+		// fmt.Printf("checking[(%v,%v)%v]=%v for %v\n", startIdx, endIdx, midIdx, v, targetType)
+		if v < targetType {
+			startIdx = midIdx + 1
+		} else if v > targetType {
+			endIdx = midIdx - 1
+		} else {
+			return coms[midIdx]
+		}
+	}
+	return nil
 }
 
 func (e *entity) Components() []Component {
